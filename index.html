@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image deblank | Professional Alpha Matting</title>
+    <!-- MediaPipe Tasks Vision -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"
+        crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Tools (Rail) -->
+        <nav class="tool-rail">
+            <button class="rail-btn active" title="전체 스캔" data-tool="select">🎯</button>
+            <button class="rail-btn" title="매직 포인트" data-tool="magic">✨</button>
+            <button class="rail-btn" title="컬러 지우개" data-tool="color-erase">🪄</button>
+            <button class="rail-btn" title="스마트 브러쉬" data-tool="brush">🖌️</button>
+            <button class="rail-btn" title="화면 이동" data-tool="pan">🤚</button>
+            <button class="rail-btn" title="원본 보기" id="toggle-original">👁️</button>
+        </nav>
+
+        <!-- Main Editor -->
+        <main class="editor-canvas-area">
+            <header class="top-bar">
+                <div class="app-logo"><span>IMAGE</span> DEBLANK</div>
+                <div id="session-info" style="font-size: 0.8rem; color: var(--text-muted);">Ready</div>
+                <div class="top-actions">
+                    <button id="undo-btn" class="btn-v4 btn-v4-outline"
+                        style="padding: 8px 12px; font-size: 0.8rem; margin-right: 8px;" disabled title="Undo (Ctrl+Z)">
+                        undo
+                    </button>
+                    <button id="download" class="btn-v4 btn-v4-primary" style="padding: 8px 16px; font-size: 0.8rem;"
+                        disabled>
+                        내보내기
+                    </button>
+                </div>
+            </header>
+
+            <div class="viewport" id="viewport">
+                <div class="dropzone-v4" id="drop-zone">
+                    <div class="upload-box">
+                        <div style="font-size: 3rem; margin-bottom: 20px;">🎬</div>
+                        <h2 style="margin-bottom: 10px;">프로페셔널 이미지 매팅</h2>
+                        <p style="color: var(--text-muted); margin-bottom: 30px;">고화질 사진을 드롭하여 시작하세요</p>
+                        <label for="upload" class="btn-v4 btn-v4-primary"
+                            style="width: auto; margin: 0 auto; padding: 12px 40px; cursor: pointer; display: inline-flex;">파일
+                            열기</label>
+                        <input type="file" id="upload" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+                <canvas id="canvas"></canvas>
+                <div class="floating-hints">
+                    <div class="hint-item">
+                        <kbd>Space</kbd> + <div class="mouse-icon left-active"></div>
+                        <span>이동</span>
+                    </div>
+                    <div class="hint-item">
+                        <div class="mouse-icon"></div>
+                        <span>(휠) 확대/축소</span>
+                    </div>
+                    <div class="hint-item">
+                        <kbd>Ctrl</kbd> + <kbd>Z</kbd>
+                        <span>Undo</span>
+                    </div>
+                    <div class="hint-item">
+                        <kbd>R</kbd>
+                        <span>화면 맞춤</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Properties Panel -->
+        <aside class="prop-sidebar">
+            <!-- Automatic Scan Panel -->
+            <div id="panel-select">
+                <section class="section">
+                    <h3 class="section-title">AI PRECISION SCAN</h3>
+                    <div class="group">
+                        <button id="process-auto" class="btn-v4 btn-v4-primary" disabled>
+                            전체 자동 배경 분리
+                        </button>
+                        <p style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.4; margin-top: 10px;">
+                            이미지 전체를 분석하여 피사체를 자동으로 감지합니다.
+                        </p>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h3 class="section-title">SCAN PARAMETERS</h3>
+                    <div class="group">
+                        <div class="label-row">
+                            <label class="label-text">매팅 반경 (Radius)</label>
+                            <span id="radius-val" class="label-val">2px</span>
+                        </div>
+                        <input type="range" id="radius-slider" min="1" max="10" step="1" value="2">
+                    </div>
+                    <div class="group">
+                        <div class="label-row">
+                            <label class="label-text">디테일 감도</label>
+                            <span id="sensitivity-val" class="label-val">15</span>
+                        </div>
+                        <input type="range" id="sensitivity-slider" min="5" max="30" step="1" value="15">
+                    </div>
+                    <button id="re-matting" class="btn-v4 btn-v4-outline" style="font-size: 0.75rem; margin-top:10px;"
+                        disabled>
+                        설정값으로 재연산
+                    </button>
+                </section>
+
+                <section class="section">
+                    <h3 class="section-title">출력 스타일</h3>
+                    <div class="group">
+                        <label class="label-text">배경 프리셋</label>
+                        <div class="preset-flex">
+                            <div class="bg-dot bg-dot-trans active" data-type="transparent"></div>
+                            <div class="bg-dot" data-type="color" data-color="#ffffff" style="background: white;"></div>
+                            <div class="bg-dot" data-type="color" data-color="#000000" style="background: black;"></div>
+                            <div class="bg-dot" data-type="color" data-color="#f3f4f6" style="background: #f3f4f6;">
+                            </div>
+                            <input type="color" id="bg-picker" style="display:none">
+                            <div class="bg-dot" id="trigger-color"
+                                style="background: linear-gradient(to bottom right, #ff0000, #00ff00, #0000ff); display: flex; align-items: center; justify-content: center; font-size: 0.6rem;">
+                                🌈</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Magic Point Panel -->
+            <div id="panel-magic" style="display: none;">
+                <section class="section">
+                    <h3 class="section-title">MAGIC POINT (SAM)</h3>
+                    <div class="group">
+                        <p style="font-size: 0.75rem; color: var(--text-main); font-weight: 600;">유지할 물체를 클릭하세요</p>
+                        <p style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.4; margin-top: 5px;">
+                            AI가 클릭된 점을 기반으로 물체 전체를 똑똑하게 인식합니다. 넓은 면적을 한 번에 선택할 때 유용합니다.
+                        </p>
+                    </div>
+                    <button id="clear-points" class="btn-v4 btn-v4-outline"
+                        style="font-size: 0.75rem; margin-top:10px;">
+                        포인트 초기화
+                    </button>
+                </section>
+            </div>
+
+            <!-- Magic Color Erase Panel -->
+            <div id="panel-color-erase" style="display: none;">
+                <section class="section">
+                    <h3 class="section-title">COLOR ERASER</h3>
+                    <div class="group">
+                        <p style="font-size: 0.75rem; color: var(--text-main); font-weight: 600;">지우고 싶은 색상을 클릭하세요</p>
+                        <p style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.4; margin-top: 5px;">
+                            이미지에서 특정 색상을 선택하면, 그와 유사한 모든 배경색을 순식간에 날려버립니다. 단색 배경 제거에 탁월합니다.
+                        </p>
+                    </div>
+                    <div class="group" style="margin-top: 20px;">
+                        <div class="label-row">
+                            <label class="label-text">컬러 허용 오차 (Tolerance)</label>
+                            <span id="tolerance-val" class="label-val">30</span>
+                        </div>
+                        <input type="range" id="tolerance-slider" min="5" max="150" value="30">
+                    </div>
+                </section>
+            </div>
+
+            <!-- Brush Panel -->
+            <div id="panel-brush" style="display: none;">
+                <section class="section">
+                    <h3 class="section-title">SMART MATTING BRUSH</h3>
+                    <div class="btn-toggle-group">
+                        <button class="btn-mode active" data-mode="none">
+                            <i>👁️</i>
+                            <span>뷰어</span>
+                        </button>
+                        <button class="btn-mode" data-mode="erase">
+                            <i>✂️</i>
+                            <span>삭제</span>
+                        </button>
+                        <button class="btn-mode" data-mode="restore">
+                            <i>🩹</i>
+                            <span>복원</span>
+                        </button>
+                    </div>
+                    <div class="group" style="margin-top: 20px;">
+                        <div class="label-row">
+                            <label class="label-text">브러쉬 크기</label>
+                            <span id="brush-size-val" class="label-val">30px</span>
+                        </div>
+                        <input type="range" id="brush-slider" min="5" max="300" value="30">
+                    </div>
+                </section>
+            </div>
+
+            <div style="flex: 1;"></div>
+            <button id="reset-btn" class="btn-v4 btn-v4-outline">초기화</button>
+        </aside>
+    </div>
+
+    <!-- Profession Status -->
+    <div id="status-indicator" class="status-indicator">
+        <div class="progress-ring"></div>
+        <div class="status-text-wrap">
+            <div id="status-main" style="font-weight: 800; font-size: 0.9rem;">진행 중</div>
+            <div id="status-sub" style="font-size: 0.7rem; color: var(--text-muted);">가이드 필터 최적화 연산 중...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            ImageSegmenter,
+            InteractiveSegmenter,
+            FilesetResolver
+        } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+        // Constants & DOM
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const viewport = document.getElementById('viewport');
+        const upload = document.getElementById('upload');
+        const dropZone = document.getElementById('drop-zone');
+
+        // V4/V5 Engine State
+        let segmenter;
+        let interactiveSegmenter;
+        let originalImg = null;
+        let alphaMask = null;
+        let historyStack = []; // Stores Uint8Array snapshots
+
+        let magicPoints = []; // [{x, y}]
+
+        let scale = 1.0;
+        let offset = { x: 0, y: 0 };
+        let isPanning = false;
+        let startPan = { x: 0, y: 0 };
+        let currentTool = 'select'; // 'select', 'brush', 'pan'
+        let brushMode = 'none'; // 'none', 'erase', 'restore'
+        let brushSize = 30;
+        let isDrawing = false;
+        let isOriginalVisible = false;
+
+        let bgStyle = { type: 'transparent', color: '#ffffff' };
+
+        // --- Initialization ---
+        async function init() {
+            showStatus("ENGINE", "AI 매팅 엔진 초기화 중...", true);
+            try {
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+                );
+                segmenter = await ImageSegmenter.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/latest/deeplab_v3.tflite",
+                        delegate: "GPU"
+                    },
+                    runningMode: "IMAGE",
+                    outputCategoryMask: true
+                });
+                interactiveSegmenter = await InteractiveSegmenter.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite",
+                        delegate: "GPU"
+                    },
+                    outputCategoryMask: true,
+                    runningMode: "IMAGE"
+                });
+                showStatus("READY", "최첨단 매직 엔진 로드 완료", false);
+            } catch (err) {
+                showStatus("ERROR", "엔진 중단됨: " + err.message);
+            }
+        }
+        init();
+
+        function showStatus(main, sub, show = true) {
+            const toast = document.getElementById('status-indicator');
+            document.getElementById('status-main').innerText = main;
+            document.getElementById('status-sub').innerText = sub;
+            if (show) toast.classList.add('visible');
+            else setTimeout(() => toast.classList.remove('visible'), 2000);
+        }
+
+        // --- Core Image Handling ---
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.src = e.target.result;
+                img.onload = () => {
+                    originalImg = img;
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+
+                    alphaMask = null;
+                    resetTools();
+                    fitToScreen();
+                    render();
+
+                    dropZone.classList.add('hidden');
+                    document.getElementById('process-auto').disabled = false;
+                    document.getElementById('session-info').innerText = `${img.width}x${img.height} PX`;
+                    showStatus("LOADED", "고해상도 이미지 로드 완료", true);
+                    setTimeout(() => showStatus("", "", false), 1000);
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function fitToScreen() {
+            if (!originalImg) return;
+            const ratio = Math.min(viewport.clientWidth / originalImg.width, viewport.clientHeight / originalImg.height) * 0.9;
+            scale = ratio;
+            offset.x = (viewport.clientWidth - originalImg.width * scale) / 2;
+            offset.y = (viewport.clientHeight - originalImg.height * scale) / 2;
+            updateTransform();
+        }
+
+        function updateTransform() {
+            canvas.style.transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale})`;
+        }
+
+        function resetTools() {
+            document.getElementById('download').disabled = true;
+            document.getElementById('re-matting').disabled = true;
+            historyStack = [];
+            document.getElementById('undo-btn').disabled = true;
+        }
+
+        // --- History System ---
+        function saveToHistory() {
+            if (!alphaMask) return;
+            if (historyStack.length >= 20) historyStack.shift();
+            historyStack.push(new Uint8Array(alphaMask.data));
+            document.getElementById('undo-btn').disabled = false;
+        }
+
+        function undo() {
+            if (historyStack.length === 0 || !alphaMask) return;
+            alphaMask.data.set(historyStack.pop());
+            if (historyStack.length === 0) document.getElementById('undo-btn').disabled = true;
+            render();
+            showStatus("UNDO", "이전 단계로 되돌렸습니다.", true);
+            setTimeout(() => showStatus("", "", false), 1000);
+        }
+
+        // --- Advanced Matting Algorithm ---
+
+        /**
+         * ALPHA MATTING (FAST GUIDED FILTER 2.0)
+         * - Calculates true 0-255 transparency for hair and soft edges.
+         */
+        async function runProfessionalMatting(rawMaskInput = null) {
+            if (!originalImg) return;
+
+            saveToHistory(); // Save BEFORE scan
+
+            let rawMask = rawMaskInput;
+            if (!rawMask) {
+                if (!segmenter) return;
+                showStatus("SEGMENT", "피사체 실루엣 분석 중...", true);
+                const result = await new Promise(res => segmenter.segment(originalImg, res));
+                rawMask = result.categoryMask.getAsUint8Array();
+            }
+
+            const w = originalImg.width, h = originalImg.height;
+            showStatus("MATTING", "알파 매팅 (0-255) 엔진 가동 중...", true);
+            const startTime = performance.now();
+
+            const off = document.createElement('canvas');
+            off.width = w; off.height = h;
+            const octx = off.getContext('2d', { willReadFrequently: true });
+            octx.drawImage(originalImg, 0, 0);
+            const pixels = octx.getImageData(0, 0, w, h).data;
+            const refinedAlpha = new Uint8Array(w * h);
+            const radius = parseInt(document.getElementById('radius-slider').value);
+            const sensitivity = parseInt(document.getElementById('sensitivity-slider').value);
+
+            for (let step = 0; step < 5; step++) {
+                const yStart = Math.floor(h * (step / 5)), yEnd = Math.floor(h * ((step + 1) / 5));
+                showStatus("MATTING", `머리카락 디테일 복원 중 (${(step + 1) * 20}%)...`, true);
+                await new Promise(r => setTimeout(r, 10));
+
+                for (let y = yStart; y < yEnd; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const idx = y * w + x;
+                        const mCurrent = rawMask[idx] > 0;
+                        let isEdge = false;
+                        if (x > radius && x < w - radius && y > radius && y < h - radius) {
+                            if (mCurrent !== (rawMask[idx - w * radius] > 0) || mCurrent !== (rawMask[idx + w * radius] > 0)) isEdge = true;
+                        } else isEdge = true;
+
+                        if (!isEdge) {
+                            refinedAlpha[idx] = mCurrent ? 255 : 0;
+                            continue;
+                        }
+
+                        const r_guide = pixels[idx * 4], g_guide = pixels[idx * 4 + 1], b_guide = pixels[idx * 4 + 2];
+                        let weightedSum = 0, weightTotal = 0;
+                        for (let ky = -radius; ky <= radius; ky++) {
+                            for (let kx = -radius; kx <= radius; kx++) {
+                                const nIdx = (y + ky) * w + (x + kx);
+                                if (nIdx < 0 || nIdx >= refinedAlpha.length) continue;
+                                const nr = pixels[nIdx * 4], ng = pixels[nIdx * 4 + 1], nb = pixels[nIdx * 4 + 2];
+                                const colorDist = Math.sqrt((r_guide - nr) ** 2 + (g_guide - ng) ** 2 + (b_guide - nb) ** 2);
+                                const guideWeight = 1 / (1 + colorDist / sensitivity);
+                                weightedSum += (rawMask[nIdx] > 0 ? 255 : 0) * guideWeight;
+                                weightTotal += guideWeight;
+                            }
+                        }
+                        refinedAlpha[idx] = Math.max(0, Math.min(255, weightedSum / weightTotal));
+                    }
+                }
+            }
+
+            alphaMask = { data: refinedAlpha, width: w, height: h };
+            render();
+            showStatus("COMPLETE", `처리 완료 (${Math.round(performance.now() - startTime)}ms)`, true);
+            setTimeout(() => showStatus("", "", false), 2000);
+            document.getElementById('download').disabled = false;
+            document.getElementById('re-matting').disabled = false;
+        }
+
+        async function runMagicPoint(pos) {
+            if (!originalImg || !interactiveSegmenter) return;
+            showStatus("MAGIC", "포인트 기반 개체 인식 중...", true);
+            const normX = pos.x / originalImg.width;
+            const normY = pos.y / originalImg.height;
+            interactiveSegmenter.segment(originalImg, { keypoint: { x: normX, y: normY } }, (result) => {
+                let rawMask = result.categoryMask.getAsUint8Array();
+
+                // Auto-Inversion Logic: Clicked point MUST be part of the foreground.
+                // If the mask value at clicked point is 0, we flip the entire mask.
+                const clickIdx = Math.floor(pos.y) * originalImg.width + Math.floor(pos.x);
+                if (rawMask[clickIdx] === 0) {
+                    console.log("Magic Point: Inverting mask results");
+                    const inverted = new Uint8Array(rawMask.length);
+                    for (let i = 0; i < rawMask.length; i++) inverted[i] = rawMask[i] === 0 ? 255 : 0;
+                    rawMask = inverted;
+                }
+
+                runProfessionalMatting(rawMask);
+            });
+        }
+
+        async function runColorEraser(pos) {
+            if (!originalImg || !alphaMask) return;
+
+            saveToHistory(); // Save BEFORE eraser logic
+
+            const w = originalImg.width, h = originalImg.height;
+            const tolerance = parseInt(document.getElementById('tolerance-slider').value);
+
+            const off = document.createElement('canvas');
+            off.width = w; off.height = h;
+            const octx = off.getContext('2d', { willReadFrequently: true });
+            octx.drawImage(originalImg, 0, 0);
+            const pixels = octx.getImageData(0, 0, w, h).data;
+            const maskData = alphaMask.data;
+
+            // Sample target color at click
+            const targetIdx = (Math.floor(pos.y) * w + Math.floor(pos.x)) * 4;
+            const tr = pixels[targetIdx], tg = pixels[targetIdx + 1], tb = pixels[targetIdx + 2];
+
+            showStatus("ERASING", "유사 색상 추적 및 제거 중...", true);
+
+            let count = 0;
+            for (let i = 0; i < maskData.length; i++) {
+                const pr = pixels[i * 4], pg = pixels[i * 4 + 1], pb = pixels[i * 4 + 2];
+                const dist = Math.sqrt((tr - pr) ** 2 + (tg - pg) ** 2 + (tb - pb) ** 2);
+
+                if (dist < tolerance) {
+                    maskData[i] = 0;
+                    count++;
+                }
+            }
+
+            render();
+            showStatus("DONE", `${count}개의 픽셀이 제거되었습니다.`, true);
+            setTimeout(() => showStatus("", "", false), 1500);
+        }
+
+        // --- Rendering Engine ---
+        function render() {
+            if (!originalImg) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (isOriginalVisible) {
+                ctx.drawImage(originalImg, 0, 0);
+                return;
+            }
+
+            if (bgStyle.type === 'color') {
+                ctx.fillStyle = bgStyle.color;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Draw Base
+            if (alphaMask) {
+                const fgCanvas = document.createElement('canvas');
+                fgCanvas.width = canvas.width; fgCanvas.height = canvas.height;
+                const fctx = fgCanvas.getContext('2d');
+                fctx.drawImage(originalImg, 0, 0);
+                const fData = fctx.getImageData(0, 0, fgCanvas.width, fgCanvas.height);
+                for (let i = 0; i < alphaMask.data.length; i++) {
+                    fData.data[i * 4 + 3] = alphaMask.data[i];
+                }
+                fctx.putImageData(fData, 0, 0);
+                ctx.drawImage(fgCanvas, 0, 0);
+            } else {
+                ctx.drawImage(originalImg, 0, 0);
+            }
+
+            // Draw Magic Points
+            if (currentTool === 'magic') {
+                magicPoints.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI * 2);
+                    ctx.fillStyle = '#6366f1';
+                    ctx.shadowBlur = 10 / scale;
+                    ctx.shadowColor = 'white';
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2 / scale;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                });
+            }
+        }
+
+        // --- Tool Logic ---
+        function getMousePos(e) {
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left - offset.x) / scale,
+                y: (e.clientY - rect.top - offset.y) / scale
+            };
+        }
+
+        function drawOnMask(pos) {
+            if (!alphaMask || brushMode === 'none') return;
+            const { data, width, height } = alphaMask;
+            const r = (brushSize / 2) / scale;
+            const val = brushMode === 'restore' ? 255 : 0;
+
+            const startX = Math.max(0, Math.floor(pos.x - r));
+            const endX = Math.min(width - 1, Math.ceil(pos.x + r));
+            const startY = Math.max(0, Math.floor(pos.y - r));
+            const endY = Math.min(height - 1, Math.ceil(pos.y + r));
+
+            // Smart Local Refinement
+            const off = document.createElement('canvas');
+            off.width = width; off.height = height;
+            const octx = off.getContext('2d', { willReadFrequently: true });
+            octx.drawImage(originalImg, 0, 0);
+            const pixels = octx.getImageData(0, 0, width, height).data;
+
+            let modified = false;
+            for (let y = startY; y <= endY; y++) {
+                const dy = y - pos.y;
+                for (let x = startX; x <= endX; x++) {
+                    const dx = x - pos.x;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 <= r * r) {
+                        const idx = y * width + x;
+
+                        // SMART Logic: If it's the SMART BRUSH, we don't just binary fill.
+                        // We use the color similarity to refine the alpha within the brush.
+                        if (currentTool === 'brush') {
+                            // Find local similarity to the brush touch point
+                            const centerIdx = (Math.floor(pos.y) * width + Math.floor(pos.x)) * 4;
+                            const tr = pixels[centerIdx], tg = pixels[centerIdx + 1], tb = pixels[centerIdx + 2];
+
+                            const cr = pixels[idx * 4], cg = pixels[idx * 4 + 1], cb = pixels[idx * 4 + 2];
+                            const localSim = Math.sqrt((tr - cr) ** 2 + (tg - cg) ** 2 + (tb - cb) ** 2);
+
+                            // High similarity to click color means we apply the 'val' more strongly
+                            const mix = Math.max(0, 1 - (localSim / 50));
+                            const targetVal = val * mix + data[idx] * (1 - mix);
+
+                            if (Math.abs(data[idx] - targetVal) > 1) {
+                                data[idx] = targetVal;
+                                modified = true;
+                            }
+                        } else {
+                            if (data[idx] !== val) {
+                                data[idx] = val;
+                                modified = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (modified) render();
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('process-auto').addEventListener('click', () => {
+            document.getElementById('process-auto').disabled = true;
+            runProfessionalMatting();
+        });
+        document.getElementById('re-matting').addEventListener('click', runProfessionalMatting);
+
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = -Math.sign(e.deltaY);
+            const oldScale = scale;
+            scale = Math.min(Math.max(0.01, scale + delta * 0.15 * scale), 40);
+
+            const rect = viewport.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            offset.x -= (mouseX - offset.x) * (scale / oldScale - 1);
+            offset.y -= (mouseY - offset.y) * (scale / oldScale - 1);
+            updateTransform();
+        }, { passive: false });
+
+        viewport.addEventListener('mousedown', (e) => {
+            if (isPanning || e.button === 1 || currentTool === 'pan' || (window.isSpacePressed)) {
+                isPanning = true;
+                startPan = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+            } else if (currentTool === 'magic') {
+                const pos = getMousePos(e);
+                magicPoints = [pos]; // For now, single point interactive
+                render();
+                runMagicPoint(pos);
+            } else if (currentTool === 'color-erase') {
+                runColorEraser(getMousePos(e));
+            } else if (brushMode !== 'none') {
+                saveToHistory(); // Save before brush stroke
+                isDrawing = true;
+                drawOnMask(getMousePos(e));
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                offset.x = e.clientX - startPan.x;
+                offset.y = e.clientY - startPan.y;
+                updateTransform();
+            } else if (isDrawing) {
+                drawOnMask(getMousePos(e));
+            }
+        });
+
+        window.addEventListener('mouseup', () => { isPanning = false; isDrawing = false; });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') window.isSpacePressed = true;
+            if (e.code === 'KeyR') fitToScreen();
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+                e.preventDefault();
+                undo();
+            }
+        });
+        window.addEventListener('keyup', (e) => { if (e.code === 'Space') window.isSpacePressed = false; });
+
+        // Tool buttons
+        document.querySelectorAll('.rail-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tool = btn.dataset.tool;
+                if (!tool) return;
+                document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTool = tool;
+
+                // Sync Panels
+                document.getElementById('panel-select').style.display = tool === 'select' ? 'block' : 'none';
+                document.getElementById('panel-magic').style.display = tool === 'magic' ? 'block' : 'none';
+                document.getElementById('panel-color-erase').style.display = tool === 'color-erase' ? 'block' : 'none';
+                document.getElementById('panel-brush').style.display = tool === 'brush' ? 'block' : 'none';
+                render();
+            });
+        });
+
+        document.getElementById('tolerance-slider').addEventListener('input', (e) => {
+            document.getElementById('tolerance-val').innerText = e.target.value;
+        });
+
+        document.getElementById('clear-points').addEventListener('click', () => {
+            magicPoints = [];
+            alphaMask = null;
+            render();
+        });
+
+        document.getElementById('toggle-original').addEventListener('mousedown', () => { isOriginalVisible = true; render(); });
+        document.getElementById('toggle-original').addEventListener('mouseup', () => { isOriginalVisible = false; render(); });
+
+        document.getElementById('radius-slider').addEventListener('input', (e) => {
+            document.getElementById('radius-val').innerText = e.target.value + 'px';
+        });
+        document.getElementById('sensitivity-slider').addEventListener('input', (e) => {
+            document.getElementById('sensitivity-val').innerText = e.target.value;
+        });
+        document.getElementById('brush-slider').addEventListener('input', (e) => {
+            brushSize = parseInt(e.target.value);
+            document.getElementById('brush-size-val').innerText = brushSize + 'px';
+        });
+
+        document.querySelectorAll('.btn-mode').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                brushMode = btn.dataset.mode;
+            });
+        });
+
+        // Background presets
+        document.querySelectorAll('.bg-dot').forEach(dot => {
+            dot.addEventListener('click', () => {
+                if (dot.id === 'trigger-color') {
+                    document.getElementById('bg-picker').click();
+                    return;
+                }
+                document.querySelectorAll('.bg-dot').forEach(d => d.classList.remove('active'));
+                dot.classList.add('active');
+                bgStyle.type = dot.dataset.type;
+                if (bgStyle.type === 'color') bgStyle.color = dot.dataset.color;
+                render();
+            });
+        });
+
+        document.getElementById('bg-picker').addEventListener('input', (e) => {
+            bgStyle.type = 'color';
+            bgStyle.color = e.target.value;
+            document.querySelectorAll('.bg-dot').forEach(d => d.classList.remove('active'));
+            document.getElementById('trigger-color').style.background = e.target.value;
+            document.getElementById('trigger-color').classList.add('active');
+            render();
+        });
+
+        // Dropzone & File
+        upload.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = 'var(--primary)';
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = '';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = '';
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleFile(file);
+            }
+        });
+
+        document.getElementById('reset-btn').addEventListener('click', () => location.reload());
+
+        document.getElementById('download').addEventListener('click', () => {
+            if (!alphaMask || !originalImg) return;
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = originalImg.width; exportCanvas.height = originalImg.height;
+            const ectx = exportCanvas.getContext('2d');
+
+            if (bgStyle.type === 'color') {
+                ectx.fillStyle = bgStyle.color;
+                ectx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            }
+
+            const fgCanvas = document.createElement('canvas');
+            fgCanvas.width = exportCanvas.width; fgCanvas.height = exportCanvas.height;
+            const fctx = fgCanvas.getContext('2d');
+            fctx.drawImage(originalImg, 0, 0);
+            const fData = fctx.getImageData(0, 0, fgCanvas.width, fgCanvas.height);
+            for (let i = 0; i < alphaMask.data.length; i++) {
+                fData.data[i * 4 + 3] = alphaMask.data[i];
+            }
+            fctx.putImageData(fData, 0, 0);
+            ectx.drawImage(fgCanvas, 0, 0);
+
+            const link = document.createElement('a');
+            link.download = `magic-matting-v0.5-${Date.now()}.png`;
+            link.href = exportCanvas.toDataURL('image/png', 1.0);
+            link.click();
+        });
+
+    </script>
+</body>
+
+</html>

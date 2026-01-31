@@ -1,0 +1,9 @@
+v1/
+v2/
+v3/
+v4/
+v5/
+node_modules/
+.DS_Store
+*.log
+*.bat
